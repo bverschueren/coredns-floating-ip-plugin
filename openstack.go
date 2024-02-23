@@ -3,13 +3,10 @@ package ospfip
 import (
 	"fmt"
 
-	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/layer3/floatingips"
 	"github.com/gophercloud/utils/openstack/clientconfig"
 )
-
-var log = clog.NewWithPlugin("ospfip")
 
 type OpenStackClient struct {
 	client *gophercloud.ServiceClient
@@ -33,7 +30,7 @@ func (osc *OpenStackClient) ListTaggedFips(tag string) ([]floatingips.FloatingIP
 
 	allPages, err := floatingips.List(osc.client, listOpts).AllPages()
 	if err != nil {
-		return nil, fmt.Errorf("here: %s", err)
+		return nil, fmt.Errorf("failed to list floating ips: %s", err)
 	}
 
 	allTaggedFIPs, err := floatingips.ExtractFloatingIPs(allPages)
