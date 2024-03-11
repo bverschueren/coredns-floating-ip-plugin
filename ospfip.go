@@ -213,5 +213,4 @@ func aType(addr net.IP) string {
 	} else {
 		return "AAAA"
 	}
-	return ""
 }
