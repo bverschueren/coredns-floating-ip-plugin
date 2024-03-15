@@ -9,8 +9,8 @@ VERSION := $(shell git describe --abbrev=0 --tags)
 
 all: test coredns
 
-.PHONY: fmt
-test:
+.PHONY: test
+test: fmt vet
 	go test -v ./...
 
 .PHONY: fmt
@@ -55,8 +55,8 @@ coredns: clean-bin coredns-deps
 	cd $(COREDNS_SRC_DIR) && \
 		$(SYSTEM) go build $(BUILDOPTS) -o $(MKFILE_DIR)/$(BINARY)
 
-.PHONY: release
-release: clean-release coredns-deps
+.PHONY: build
+build: clean-release coredns-deps
 	@echo Building: darwin/amd64 - $(VERSION)
 	mkdir -p $(BUILD_DIR)/darwin/amd64 && $(MAKE) coredns BINARY=$(BUILD_DIR)/darwin/amd64/coredns SYSTEM="GOOS=darwin GOARCH=amd64"
 	@echo Building: darwin/arm64 - $(VERSION)
@@ -68,8 +68,8 @@ release: clean-release coredns-deps
 	    mkdir -p $(BUILD_DIR)/linux/$$arch  && $(MAKE) coredns BINARY=$(BUILD_DIR)/linux/$$arch/coredns SYSTEM="GOOS=linux GOARCH=$$arch" ;\
 	done
 
-.PHONY: tar
-tar: release
+.PHONY: release
+release: build
 	@echo Cleaning old releases
 	@rm -rf release && mkdir release
 	tar -zcf release/coredns_$(VERSION)_darwin_amd64.tgz -C $(BUILD_DIR)/darwin/amd64 coredns
@@ -78,4 +78,3 @@ tar: release
 	for arch in $(LINUX_ARCH); do \
 	    tar -zcf release/coredns_$(VERSION)_linux_$$arch.tgz -C $(BUILD_DIR)/linux/$$arch coredns ;\
 	done
-
