@@ -10,6 +10,7 @@ import (
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/file"
+	"github.com/coredns/coredns/plugin/pkg/dnsutil"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -19,14 +20,15 @@ import (
 const PLUGIN_TAG_IDENTIFIER = "coredns:plugin:ospfip"
 
 type OspFip struct {
-	client    *OpenStackClient
-	Origins   []string
-	zones     map[string]*file.Zone
-	zoneNames []string
-	refresh   time.Duration
-	ttl       uint32
-	Next      plugin.Handler
-	mutex     sync.RWMutex
+	client         *OpenStackClient
+	Origins        []string
+	zones          map[string]*file.Zone
+	zoneNames      []string
+	reverseRecords map[string]string
+	refresh        time.Duration
+	ttl            uint32
+	Next           plugin.Handler
+	mutex          sync.RWMutex
 }
 
 type zone struct {
@@ -36,11 +38,9 @@ type zone struct {
 
 func New(client *OpenStackClient, refresh time.Duration, ttl uint32) *OspFip {
 	return &OspFip{
-		client:    client,
-		zones:     make(map[string]*file.Zone),
-		zoneNames: make([]string, 0),
-		refresh:   refresh,
-		ttl:       ttl,
+		client:  client,
+		refresh: refresh,
+		ttl:     ttl,
 	}
 }
 
@@ -78,15 +78,14 @@ func (of *OspFip) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 	of.mutex.Lock()
 	zName := plugin.Zones(of.zoneNames).Matches(qname)
 	of.mutex.Unlock()
-
-	if zName == "" {
+	if zName == "" && state.QType() != dns.TypePTR {
 		return plugin.NextOrFailure(of.Name(), of.Next, ctx, w, r)
 	}
 
 	of.mutex.Lock()
 	z, ok := of.zones[zName]
 	of.mutex.Unlock()
-	if !ok || z == nil {
+	if (!ok || z == nil) && state.QType() != dns.TypePTR {
 		return dns.RcodeServerFailure, nil
 	}
 
@@ -96,9 +95,23 @@ func (of *OspFip) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 
 	switch state.QType() {
 	case dns.TypePTR:
-		// TODO: reverse lookup
-		log.Debugf("PTR is not implemented at this time")
-		return plugin.NextOrFailure(of.Name(), of.Next, ctx, w, r)
+		addr := dnsutil.ExtractAddressFromReverse(qname)
+		if addr == "" {
+			return plugin.NextOrFailure(of.Name(), of.Next, ctx, w, r)
+		}
+		of.mutex.RLock()
+		record := of.reverseRecords[addr]
+		of.mutex.RUnlock()
+		if record == "" {
+			return plugin.NextOrFailure(of.Name(), of.Next, ctx, w, r)
+		}
+		rfc1035 := fmt.Sprintf("%s %d IN %s %s", qname, of.ttl, "PTR", dns.Fqdn(record))
+
+		rr, err := dns.NewRR(rfc1035)
+		if err != nil {
+			return dns.RcodeServerFailure, fmt.Errorf("failed to parse resource record: %v", err)
+		}
+		m.Answer = []dns.RR{rr}
 	case dns.TypeA, dns.TypeAAAA:
 		of.mutex.RLock()
 		m.Answer, m.Ns, m.Extra, _ = z.Lookup(ctx, state, qname)
@@ -120,6 +133,7 @@ func (of *OspFip) updateRecords() error {
 	}
 	zones := make(map[string]*file.Zone)
 	zoneNames := make([]string, 0)
+	reverseRecords := make(map[string]string)
 
 	for _, fip := range taggedFips {
 		ip := net.ParseIP(fip.FloatingIP)
@@ -128,8 +142,8 @@ func (of *OspFip) updateRecords() error {
 			continue
 		}
 
-		record := recordFromTags(fip.Tags)
-		recordName := plugin.Name(string(record)).Normalize()
+		recordTag := recordFromTags(fip.Tags)
+		recordName := plugin.Name(string(recordTag)).Normalize()
 		if plugin.Zones(of.Origins).Matches(recordName) == "" {
 			log.Debugf("'%s' does not match the configured origin(s), skipping...", recordName)
 			continue
@@ -159,10 +173,15 @@ func (of *OspFip) updateRecords() error {
 			return fmt.Errorf("failed to insert record: %v", err)
 		}
 		zones[zoneName] = zone
+		if err := validation.IsWildcardDNS1123Subdomain(unFqdn(recordName)); err != nil {
+			log.Debugf("Adding PTR record for '%s' as '%s'", ip.String(), recordName)
+			reverseRecords[ip.String()] = dns.Fqdn(recordName)
+		}
 	}
 	of.mutex.Lock()
 	of.zones = zones
 	of.zoneNames = zoneNames
+	of.reverseRecords = reverseRecords
 	of.mutex.Unlock()
 	log.Debugf("currently authoritative for zones %s", of.zoneNames)
 	return nil
@@ -204,6 +223,16 @@ func recordFromTags(tags []string) string {
 		}
 	}
 	return ""
+}
+
+// IsWildcardDNS1123Subdomain doesn't consider fqdn domains so unfqdn before validating
+// https://github.com/kubernetes/apimachinery/blob/d82afe1e363acae0e8c0953b1bc230d65fdb50e2/pkg/util/validation/validation.go#L255C6-L255C32
+func unFqdn(record string) string {
+	suffix := "."
+	if strings.HasSuffix(record, suffix) {
+		record = record[:len(record)-len(suffix)]
+	}
+	return record
 }
 
 // return the dns type for a given IP v4 or v6

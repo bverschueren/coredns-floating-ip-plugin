@@ -110,6 +110,28 @@ func TestServeDNS(t *testing.T) {
 			},
 		},
 		{
+			name:       "known IPv4 addres returns PTR",
+			zoneName:   "example.",
+			recordName: "testipv4",
+			ip:         net.IP{192, 168, 0, 1},
+			qname:      "1.0.168.192.in-addr.arpa.", qtype: dns.TypePTR,
+			rcode: dns.RcodeSuccess,
+			answer: []dns.RR{
+				test.PTR("1.0.168.192.in-addr.arpa.  0       IN      PTR       testipv4.example."),
+			},
+		},
+		{
+			name:       "known IPv6 record returns PTR",
+			zoneName:   "example.",
+			recordName: "testipv6",
+			ip:         net.ParseIP("1234:abcd::1"),
+			qname:      "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.d.c.b.a.4.3.2.1.ip6.arpa.", qtype: dns.TypePTR,
+			rcode: dns.RcodeSuccess,
+			answer: []dns.RR{
+				test.PTR("1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.d.c.b.a.4.3.2.1.ip6.arpa.  0       IN      PTR       testipv6.example."),
+			},
+		},
+		{
 			name:       "unknown A record calls Next Handler",
 			zoneName:   "example.",
 			recordName: "unknown",
@@ -135,7 +157,10 @@ func TestServeDNS(t *testing.T) {
 					tt.zoneName: zone,
 				},
 				zoneNames: []string{tt.zoneName},
-				Next:      test.NextHandler(dns.RcodeNameError, nil),
+				reverseRecords: map[string]string{
+					tt.ip.String(): tt.recordName + "." + tt.zoneName,
+				},
+				Next: test.NextHandler(dns.RcodeNameError, nil),
 			}
 			ctx := context.TODO()
 
@@ -170,13 +195,15 @@ func TestServeDNS(t *testing.T) {
 
 func TestUpdateRecords(t *testing.T) {
 	cases := []struct {
-		name             string
-		listResponse     string
-		expectedZoneName string
-		expectedRecords  int
+		name                   string
+		listResponse           string
+		expectedZoneName       string
+		expectedRecords        int
+		expectedReverseRecords int
 	}{
-		{name: "update from tagged fips", listResponse: ListResponse(taggedFip), expectedZoneName: "mycluster.example.net.", expectedRecords: 1},
-		{name: "update from taggless fips", listResponse: ListResponse(""), expectedZoneName: "", expectedRecords: 0},
+		{name: "update from tagged fips", listResponse: ListResponse(taggedFip), expectedZoneName: "mycluster.example.net.", expectedRecords: 1, expectedReverseRecords: 1},
+		{name: "update from tagged wildcard fips", listResponse: ListResponse(taggedWildcardFip), expectedZoneName: "mycluster.example.net.", expectedRecords: 1, expectedReverseRecords: 0},
+		{name: "update from taggless fips", listResponse: ListResponse(""), expectedZoneName: "", expectedRecords: 0, expectedReverseRecords: 0},
 	}
 
 	for _, tt := range cases {
@@ -207,8 +234,13 @@ func TestUpdateRecords(t *testing.T) {
 			if tt.expectedZoneName != "" && !ok {
 				t.Fatalf("expected zone '%s', got %+v", tt.expectedZoneName, of.zones)
 			}
-			if tt.expectedZoneName != "" && tt.expectedRecords != zone.Len() {
-				t.Fatalf("expected %+v zones, got %+v", tt.expectedRecords, zone.Len())
+			if tt.expectedZoneName != "" {
+				if tt.expectedRecords != zone.Len() {
+					t.Fatalf("expected %+v zones, got %+v", tt.expectedRecords, zone.Len())
+				}
+				if tt.expectedReverseRecords != len(of.reverseRecords) {
+					t.Fatalf("expected %+v zones, got %+v", tt.expectedReverseRecords, len(of.reverseRecords))
+				}
 			}
 		})
 	}
@@ -251,4 +283,42 @@ func TestZoneFromRecord(t *testing.T) {
 		})
 	}
 
+}
+
+func TestUnFqdn(t *testing.T) {
+
+	cases := []struct {
+		Name     string
+		record   string
+		expected string
+	}{
+		{
+			Name:     "non-fqdn wildcard",
+			record:   "*.example.org",
+			expected: "*.example.org",
+		},
+		{
+			Name:     "fqdn wildcard",
+			record:   "*.example.org.",
+			expected: "*.example.org",
+		},
+		{
+			Name:     "non-fqdn non-wildcard",
+			record:   "test.example.org",
+			expected: "test.example.org",
+		},
+		{
+			Name:     "fqdn non-wildcard",
+			record:   "test.example.org.",
+			expected: "test.example.org",
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.Name, func(t *testing.T) {
+			got := unFqdn(tt.record)
+			if got != tt.expected {
+				t.Fatalf("expected %v, got %v", tt.expected, got)
+			}
+		})
+	}
 }

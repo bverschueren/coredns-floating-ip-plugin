@@ -10,8 +10,8 @@
 The *ospfip* plugin queries an OpenStack Floating IP API and resolves hostnames
 found in predefined tags on Floating IP's.
 
-Currently the plugin supports both A and AAAA records (including wildcards).
-PTR records are not implemented yet.
+Currently the plugin supports both A and AAAA (including wildcards) and PTR
+records (excluding wildcards).
 
 **Note:** This is intended for test/development environments. Use with care.
 
