@@ -12,8 +12,8 @@ import (
 	"github.com/coredns/coredns/plugin/file"
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
 	"github.com/coredns/coredns/plugin/test"
-	fake "github.com/gophercloud/gophercloud/openstack/networking/v2/common"
-	th "github.com/gophercloud/gophercloud/testhelper"
+	fake "github.com/gophercloud/gophercloud/v2/openstack/networking/v2/common"
+	th "github.com/gophercloud/gophercloud/v2/testhelper"
 	"github.com/miekg/dns"
 )
 
