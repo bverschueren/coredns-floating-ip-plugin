@@ -10,7 +10,7 @@ VERSION := $(shell git describe --abbrev=0 --tags)
 all: test coredns
 
 .PHONY: test
-test: fmt vet
+test:
 	go test -v ./...
 
 .PHONY: fmt
@@ -56,7 +56,7 @@ coredns: clean-bin coredns-deps
 		$(SYSTEM) go build $(BUILDOPTS) -o $(MKFILE_DIR)/$(BINARY)
 
 .PHONY: build
-build: clean-release coredns-deps
+build: fmt vet clean-release coredns-deps
 	@echo Building: darwin/amd64 - $(VERSION)
 	mkdir -p $(BUILD_DIR)/darwin/amd64 && $(MAKE) coredns BINARY=$(BUILD_DIR)/darwin/amd64/coredns SYSTEM="GOOS=darwin GOARCH=amd64"
 	@echo Building: darwin/arm64 - $(VERSION)
