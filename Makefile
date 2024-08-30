@@ -6,6 +6,7 @@ COREDNS_SRC_DIR := $(BUILD_DIR)/coredns-src
 SYSTEM:=
 LINUX_ARCH:=amd64 arm arm64 mips64le ppc64le s390x mips riscv64
 VERSION := $(shell git describe --abbrev=0 --tags)
+COREDNS_BRANCH ?= $(shell curl -s -L   -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28"   https://api.github.com/repos/coredns/coredns/releases/latest|jq '.name')
 
 all: test coredns
 
@@ -38,7 +39,7 @@ clean-release:
 $(COREDNS_SRC_DIR):
 	mkdir -p $(BUILD_DIR)
 	@echo preparing coredns sources in $(COREDNS_SRC_DIR)
-	git clone https://github.com/coredns/coredns $(COREDNS_SRC_DIR)
+	git clone -b $(COREDNS_BRANCH) https://github.com/coredns/coredns $(COREDNS_SRC_DIR)
 	@echo updating go.mod to use local sources
 	cd $(COREDNS_SRC_DIR) && \
 		go mod edit -replace github.com/bverschueren/coredns-floating-ip-plugin=$(MKFILE_DIR) && \
